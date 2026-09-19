@@ -72,18 +72,19 @@ flowchart TB
 
 ```text
 aula-04/
-├── README.md
-└── terraform/
-    ├── main.tf
-    ├── variables.tf
-    ├── terraform.tfvars
-    ├── outputs.tf
-    ├── key_pair.tf
-    ├── user_data.sh
-    ├── evidencia-plan.txt
-    ├── evidencia-api.json
-    ├── evidencia-ssh.txt
-    └── .gitignore
+├── .gitignore
+├── providers.tf
+├── main.tf
+├── variables.tf
+├── outputs.tf
+├── key_pair.tf
+├── user_data.sh
+├── evidencia-plan.txt
+├── terraform-plan-output.txt
+├── evidencia-api.json
+├── evidencia-ssh.txt
+├── .terraform.lock.hcl
+└── README.md
 ```
 
 ---
