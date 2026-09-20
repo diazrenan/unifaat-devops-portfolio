@@ -1,0 +1,35 @@
+# Diretório de plugins e módulos do Terraform
+.terraform/
+.terraform.lock.hcl
+
+# Arquivos de state (nunca versionar)
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Variáveis sensíveis (senhas, segredos)
+terraform.tfvars
+*.auto.tfvars
+
+# Chaves e certificados
+*.pem
+*.key
+*.ppk
+
+# Credenciais AWS
+.aws/
+credentials
+aws_credentials
+
+# Arquivos de log e temporários
+crash.log
+crash.*.log
+*.tfplan
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Arquivos de ambiente local
+.env
+.env.*
