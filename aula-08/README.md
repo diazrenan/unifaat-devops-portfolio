@@ -498,3 +498,4 @@ jobs:
 ---
 
 *Próximas etapas: Laboratório Parte 1 (CI Pipeline Completo) → Laboratório Parte 2 (Secrets + Advanced CI) → TF (Trabalho de Fixação)*
+ 
