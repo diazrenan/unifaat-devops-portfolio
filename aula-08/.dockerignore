@@ -1,0 +1,22 @@
+# Dependências locais (reinstaladas no build)
+node_modules/
+
+# Cobertura de testes
+coverage/
+
+# Arquivos de desenvolvimento
+.eslintrc.json
+.github/
+
+# Documentação e assets
+*.md
+*.html
+img/
+
+# Git
+.git/
+.gitignore
+
+# Logs
+*.log
+npm-debug.log*
