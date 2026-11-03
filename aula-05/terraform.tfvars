@@ -1,0 +1,1 @@
+db_password = "TechNovaAula052026"
