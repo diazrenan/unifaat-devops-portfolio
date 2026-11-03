@@ -1,0 +1,41 @@
+{
+  "name": "aula-08-ci-pipeline",
+  "version": "1.0.0",
+  "description": "Projeto de demonstração - Pipeline CI com GitHub Actions",
+  "main": "src/index.js",
+  "scripts": {
+    "lint": "eslint \"src/**/*.js\"",
+    "lint:fix": "eslint \"src/**/*.js\" --fix",
+    "test": "jest --coverage",
+    "test:ci": "jest --coverage --ci",
+    "build": "echo 'Build step (Docker handles this in CI)'"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/__tests__/**",
+      "!src/index.js"
+    ],
+    "coverageThresholds": {
+      "global": {
+        "lines": 80,
+        "functions": 80,
+        "branches": 80,
+        "statements": 80
+      }
+    },
+    "coverageReporters": ["text", "lcov", "html"]
+  },
+  "keywords": [
+    "devops",
+    "ci",
+    "pipeline"
+  ],
+  "author": "Unifaat",
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "jest": "^30.5.2"
+  }
+}

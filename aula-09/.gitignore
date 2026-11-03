@@ -1,0 +1,32 @@
+# Dependências
+node_modules/
+
+# Build
+dist/
+build/
+out/
+
+# Ambiente
+.env
+.env.*
+*.pem
+*.key
+
+# Cobertura de testes
+coverage/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temporários
+*.tmp
+*.temp

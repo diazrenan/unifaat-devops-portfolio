@@ -1,16 +1,54 @@
-# Dependências
+# ─────────────────────────────────────────────
+# Node.js
+# ─────────────────────────────────────────────
 node_modules/
-
-# Variáveis de ambiente
-.env
-
-# Logs
+npm-debug.log*
 *.log
 
-# Sistema operacional
-.DS_Store
-Thumbs.db
+# Cobertura de testes
+coverage/
+.nyc_output/
 
 # Build
 dist/
 build/
+
+# Variáveis de ambiente
+.env
+.env.local
+.env.*.local
+
+# ─────────────────────────────────────────────
+# Terraform
+# ─────────────────────────────────────────────
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform.tfstate.lock.info
+.terraformrc
+terraform.rc
+
+# ─────────────────────────────────────────────
+# Sistema operacional
+# ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─────────────────────────────────────────────
+# IDEs e editores
+# ─────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Kiro
+.claude/
