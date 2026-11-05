@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: technova-api
+        working-directory: aula-10/technova-api
 
     steps:
       - name: Checkout
@@ -31,7 +31,7 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: technova-api/package.json
+          cache-dependency-path: aula-10/technova-api/package.json
 
       - name: Install dependencies
         run: npm install
@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: technova-api
+        working-directory: aula-10/technova-api
 
     steps:
       - name: Checkout
@@ -58,7 +58,7 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: technova-api/package.json
+          cache-dependency-path: aula-10/technova-api/package.json
 
       - name: Install dependencies
         run: npm install

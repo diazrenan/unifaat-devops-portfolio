@@ -5,8 +5,8 @@ on:
     branches:
       - main
     paths:
-      - "terraform/**/*.tf"
-      - "terraform/**/*.tfvars"
+      - "aula-10/terraform/**/*.tf"
+      - "aula-10/terraform/**/*.tfvars"
 
 permissions:
   contents: read
@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: terraform
+        working-directory: aula-10/terraform
 
     steps:
       # ---------------------------------------------------------------
@@ -91,7 +91,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const planOutput = fs.readFileSync('terraform/plan_output.txt', 'utf8');
+            const planOutput = fs.readFileSync('aula-10/terraform/plan_output.txt', 'utf8');
 
             const initOutcome     = '${{ steps.init.outcome }}';
             const validateOutcome = '${{ steps.validate.outcome }}';
