@@ -18,7 +18,7 @@ terraform {
   #     --versioning-configuration Status=Enabled
   # -----------------------------------------------------------------------
   backend "s3" {
-    bucket         = "technova-tfstate"   # substitua pelo nome real do seu bucket
+    bucket         = "technova-tfstate-441907008326"
     key            = "aula-10/terraform.tfstate"
     region         = "us-east-1"
     encrypt        = true
