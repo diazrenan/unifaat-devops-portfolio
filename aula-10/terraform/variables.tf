@@ -36,7 +36,7 @@ variable "public_subnet_cidr" {
 variable "instance_type" {
   description = "Tipo da instância EC2"
   type        = string
-  default     = "t2.micro"   # free-tier — compatível com AWS Academy
+  default     = "t2.micro"   # free-tier — compatível com AWS Academy Lab
 }
 
 variable "app_port" {

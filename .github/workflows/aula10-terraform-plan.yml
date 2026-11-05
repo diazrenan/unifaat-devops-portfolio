@@ -1,0 +1,161 @@
+name: "Terraform Plan"
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "aula-10/terraform/**/*.tf"
+      - "aula-10/terraform/**/*.tfvars"
+
+permissions:
+  contents: read
+  pull-requests: write  # necessário para postar comentário no PR
+
+jobs:
+  terraform-plan:
+    name: "Terraform Plan"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aula-10/terraform
+
+    steps:
+      # ---------------------------------------------------------------
+      # 1. Checkout do código
+      # ---------------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------------
+      # 2. Configurar credenciais AWS Academy (session token incluso)
+      #    Secrets necessários no repositório:
+      #      AWS_ACCESS_KEY_ID
+      #      AWS_SECRET_ACCESS_KEY
+      #      AWS_SESSION_TOKEN
+      # ---------------------------------------------------------------
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region:            us-east-1
+
+      # ---------------------------------------------------------------
+      # 3. Setup Terraform
+      # ---------------------------------------------------------------
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      # ---------------------------------------------------------------
+      # 4. terraform init
+      # ---------------------------------------------------------------
+      - name: Terraform Init
+        id: init
+        run: terraform init -input=false
+
+      # ---------------------------------------------------------------
+      # 5. terraform validate
+      # ---------------------------------------------------------------
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      # ---------------------------------------------------------------
+      # 6. terraform plan
+      #    -detailed-exitcode: sai com 2 se há mudanças, 0 se não há
+      #    Salvamos o output em arquivo para postar no PR
+      # ---------------------------------------------------------------
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan \
+            -input=false \
+            -no-color \
+            -out=tfplan \
+            2>&1 | tee plan_output.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+        continue-on-error: true  # capturamos o erro abaixo
+
+      # ---------------------------------------------------------------
+      # 7. Postar resultado do plan como comentário no PR
+      # ---------------------------------------------------------------
+      - name: Post Plan Comment on PR
+        uses: actions/github-script@v7
+        env:
+          PLAN_OUTPUT: ${{ steps.plan.outputs.stdout }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync('aula-10/terraform/plan_output.txt', 'utf8');
+
+            const initOutcome     = '${{ steps.init.outcome }}';
+            const validateOutcome = '${{ steps.validate.outcome }}';
+            const planOutcome     = '${{ steps.plan.outcome }}';
+
+            // Limita o output a 65.000 chars para não extrapolar o limite do GitHub
+            const maxLen = 65000;
+            const truncated = planOutput.length > maxLen
+              ? planOutput.substring(0, maxLen) + '\n\n... [output truncado] ...'
+              : planOutput;
+
+            const body = `## 🏗️ Terraform Plan — \`${{ github.event.pull_request.head.sha }}\`
+
+            | Etapa | Status |
+            |-------|--------|
+            | 🔧 Init     | \`${initOutcome}\`     |
+            | ✅ Validate | \`${validateOutcome}\` |
+            | 📋 Plan     | \`${planOutcome}\`     |
+
+            <details><summary>📄 Saída completa do <code>terraform plan</code></summary>
+
+            \`\`\`hcl
+            ${truncated}
+            \`\`\`
+
+            </details>
+
+            > **Ação:** Revise as mudanças acima. Faça o merge para aplicar automaticamente via \`terraform-apply.yml\`.
+            > Workflow executado por: \`${{ github.actor }}\` em \`${{ github.event.pull_request.head.ref }}\`
+            `;
+
+            // Procura comentário anterior deste bot para atualizar (evita spam)
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('🏗️ Terraform Plan')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner:      context.repo.owner,
+                repo:       context.repo.repo,
+                comment_id: botComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner:        context.repo.owner,
+                repo:         context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      # ---------------------------------------------------------------
+      # 8. Falha o workflow se o plan falhou
+      #    (impede merge via branch protection)
+      # ---------------------------------------------------------------
+      - name: Fail if Plan Failed
+        if: steps.plan.outcome == 'failure'
+        run: |
+          echo "❌ terraform plan falhou. Corrija os erros antes de fazer merge."
+          exit 1
