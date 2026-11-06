@@ -2,6 +2,12 @@
 export default {
   testEnvironment: 'node',
   testMatch: ['**/src/__tests__/**/*.test.js'],
+  // Habilita suporte a ESM nativo no Jest
+  extensionsToTreatAsEsm: ['.js'],
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1',
+  },
+  transform: {},
   collectCoverageFrom: ['src/**/*.js', '!src/__tests__/**'],
   coverageThreshold: {
     global: {
