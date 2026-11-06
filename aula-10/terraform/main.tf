@@ -154,6 +154,7 @@ resource "aws_instance" "app" {
   EOF
 
   tags = {
-    Name = "${var.project_name}-${var.environment}-app"
+    Name    = "${var.project_name}-${var.environment}-app"
+    Version = "v2"
   }
 }
