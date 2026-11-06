@@ -102,6 +102,14 @@ resource "aws_security_group" "app" {
   }
 
   ingress {
+    description = "SSH"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
     description = "HTTP 80"
     from_port   = 80
     to_port     = 80
@@ -130,6 +138,7 @@ resource "aws_instance" "app" {
   instance_type          = var.instance_type
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.app.id]
+  key_name               = "technova-key"
 
   user_data = <<-EOF
     #!/bin/bash
