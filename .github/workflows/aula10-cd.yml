@@ -134,12 +134,12 @@ jobs:
           IMAGE_URI="${REGISTRY}/${ECR_REPO_NAME}"
 
           docker build \
-            --file Dockerfile \
+            --file aula-10/Dockerfile \
             --build-arg APP_VERSION="${SHA_SHORT}" \
             --tag "${IMAGE_URI}:${SHA_SHORT}" \
             --tag "${IMAGE_URI}:latest" \
             --cache-from "${IMAGE_URI}:latest" \
-            .
+            aula-10
 
           docker push "${IMAGE_URI}:${SHA_SHORT}"
           docker push "${IMAGE_URI}:latest"
