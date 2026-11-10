@@ -1,0 +1,27 @@
+{
+  "name": "technova-api",
+  "version": "1.0.0",
+  "description": "TechNova API - Aula 10 GitOps",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "lint": "eslint src/**/*.js --max-warnings=0",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --forceExit",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --runInBand --forceExit"
+  },
+  "dependencies": {
+    "express": "4.18.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.14.0",
+    "eslint": "9.14.0",
+    "globals": "15.12.0",
+    "jest": "29.7.0",
+    "supertest": "7.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,26 @@
+# Exemplo de arquivo terraform.tfvars
+# Copie este arquivo para terraform.tfvars e customize conforme necessário
+
+aws_region = "us-east-1"
+environment = "production"
+app_name = "blue-green-app"
+instance_port = 3000
+alb_port = 80
+alb_https_port = 443
+
+health_check_path = "/"
+health_check_interval = 30
+health_check_timeout = 5
+health_check_healthy_threshold = 2
+health_check_unhealthy_threshold = 3
+
+stickiness_enabled = true
+stickiness_duration = 86400
+
+tags = {
+  Project     = "blue-green-deployment"
+  ManagedBy   = "Terraform"
+  Environment = "production"
+  Owner       = "DevOps Team"
+  CostCenter  = "Engineering"
+}
