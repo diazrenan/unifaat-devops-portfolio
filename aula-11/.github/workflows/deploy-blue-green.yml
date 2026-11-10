@@ -1,0 +1,361 @@
+name: Blue/Green Deployment
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Docker image tag to deploy (default: latest commit SHA)'
+        required: false
+        default: ''
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}     # ex: 123456789.dkr.ecr.us-east-1.amazonaws.com/my-app
+  CONTAINER_NAME: app
+  CONTAINER_PORT: 3000
+
+jobs:
+  build-and-deploy:
+    name: Build, Push & Deploy to Green
+    runs-on: ubuntu-latest
+
+    # Expor outputs para o job de rollback poder ler o TG anterior
+    outputs:
+      previous_tg_arn: ${{ steps.get-active.outputs.previous_tg_arn }}
+      image_tag: ${{ steps.set-tag.outputs.image_tag }}
+      health_check_passed: ${{ steps.health-check.outputs.passed }}
+
+    steps:
+      # ─────────────────────────────────────────
+      # 1. Checkout
+      # ─────────────────────────────────────────
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      # ─────────────────────────────────────────
+      # 2. Definir tag da imagem
+      # ─────────────────────────────────────────
+      - name: Set image tag
+        id: set-tag
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          else
+            TAG="${{ github.sha }}"
+          fi
+          echo "image_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "🏷️  Image tag: $TAG"
+
+      # ─────────────────────────────────────────
+      # 3. Autenticar na AWS com credenciais temporárias
+      #    (Learner Lab usa access key + secret + session token)
+      # ─────────────────────────────────────────
+      - name: Configure AWS credentials (Learner Lab)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      # ─────────────────────────────────────────
+      # 4. Login no Amazon ECR
+      # ─────────────────────────────────────────
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ─────────────────────────────────────────
+      # 5. Build da imagem Docker e push para ECR
+      # ─────────────────────────────────────────
+      - name: Build and push Docker image to ECR
+        id: build-image
+        env:
+          REGISTRY:   ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG:  ${{ steps.set-tag.outputs.image_tag }}
+        run: |
+          FULL_IMAGE="$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          LATEST_IMAGE="$REGISTRY/$ECR_REPOSITORY:latest"
+
+          echo "🔨 Building image: $FULL_IMAGE"
+          docker build -t "$FULL_IMAGE" -t "$LATEST_IMAGE" .
+
+          echo "📤 Pushing image to ECR..."
+          docker push "$FULL_IMAGE"
+          docker push "$LATEST_IMAGE"
+
+          echo "image_uri=$FULL_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "✅ Image pushed: $FULL_IMAGE"
+
+      # ─────────────────────────────────────────
+      # 6. Descobrir qual TG está ativo no ALB
+      #    para poder fazer rollback se necessário
+      # ─────────────────────────────────────────
+      - name: Identify current active target group
+        id: get-active
+        run: |
+          CURRENT_TG=$(aws elbv2 describe-listeners \
+            --listener-arns "${{ secrets.LISTENER_ARN }}" \
+            --query 'Listeners[0].DefaultActions[0].TargetGroupArn' \
+            --output text)
+
+          echo "🔍 Current active TG: $CURRENT_TG"
+          echo "previous_tg_arn=$CURRENT_TG" >> "$GITHUB_OUTPUT"
+
+          # Validar que o Green não está já ativo
+          if [[ "$CURRENT_TG" == "${{ secrets.GREEN_TG_ARN }}" ]]; then
+            echo "⚠️  Green is already active! Proceeding anyway to update the image."
+          fi
+
+      # ─────────────────────────────────────────
+      # 7. Deploy da nova imagem na instância Green via SSH
+      # ─────────────────────────────────────────
+      - name: Deploy new image to Green EC2 instance
+        env:
+          IMAGE_URI: ${{ steps.build-image.outputs.image_uri }}
+          REGISTRY:  ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          # Escrever a chave SSH em disco temporário
+          echo "${{ secrets.GREEN_EC2_SSH_KEY }}" > /tmp/green_key.pem
+          chmod 600 /tmp/green_key.pem
+
+          SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=30"
+
+          echo "🚀 Deploying $IMAGE_URI to Green instance (${{ secrets.GREEN_EC2_HOST }})..."
+
+          ssh $SSH_OPTS -i /tmp/green_key.pem \
+            ec2-user@${{ secrets.GREEN_EC2_HOST }} << EOF
+              set -e
+
+              # Autenticar o Docker daemon no ECR
+              aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
+                docker login --username AWS --password-stdin $REGISTRY
+
+              # Parar e remover container anterior (ignora se não existir)
+              docker stop ${{ env.CONTAINER_NAME }} 2>/dev/null || true
+              docker rm   ${{ env.CONTAINER_NAME }} 2>/dev/null || true
+
+              # Puxar nova imagem
+              echo "⬇️  Pulling $IMAGE_URI"
+              docker pull "$IMAGE_URI"
+
+              # Subir container novo
+              docker run -d \
+                --name ${{ env.CONTAINER_NAME }} \
+                --restart unless-stopped \
+                -p ${{ env.CONTAINER_PORT }}:${{ env.CONTAINER_PORT }} \
+                -e APP_COLOR=green \
+                -e NODE_ENV=production \
+                "$IMAGE_URI"
+
+              # Confirmar que está rodando
+              docker ps --filter "name=${{ env.CONTAINER_NAME }}"
+              echo "✅ Container started on Green instance"
+          EOF
+
+          # Remover chave temporária
+          rm -f /tmp/green_key.pem
+
+      # ─────────────────────────────────────────
+      # 8. Aguardar health check do Target Group Green
+      #    ficar HEALTHY via AWS CLI
+      # ─────────────────────────────────────────
+      - name: Wait for Green Target Group to become healthy
+        id: health-check
+        run: |
+          echo "⏳ Waiting for Green TG to become healthy..."
+          echo "   TG ARN: ${{ secrets.GREEN_TG_ARN }}"
+
+          MAX_ATTEMPTS=30   # 30 × 10s = 5 minutos máximo
+          SLEEP_INTERVAL=10
+
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            # Contar apenas targets healthy
+            HEALTHY=$(aws elbv2 describe-target-health \
+              --target-group-arn "${{ secrets.GREEN_TG_ARN }}" \
+              --query 'length(TargetHealthDescriptions[?TargetHealth.State==`healthy`])' \
+              --output text)
+
+            # Contar total de targets registrados
+            TOTAL=$(aws elbv2 describe-target-health \
+              --target-group-arn "${{ secrets.GREEN_TG_ARN }}" \
+              --query 'length(TargetHealthDescriptions)' \
+              --output text)
+
+            echo "   Attempt $attempt/$MAX_ATTEMPTS — Healthy: $HEALTHY / Total: $TOTAL"
+
+            if [ "$TOTAL" -gt 0 ] && [ "$HEALTHY" -eq "$TOTAL" ]; then
+              echo "✅ All $HEALTHY target(s) in Green TG are healthy!"
+              echo "passed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            # Exibir detalhes do estado atual para diagnóstico
+            aws elbv2 describe-target-health \
+              --target-group-arn "${{ secrets.GREEN_TG_ARN }}" \
+              --query 'TargetHealthDescriptions[*].{ID:Target.Id,State:TargetHealth.State,Reason:TargetHealth.Reason}' \
+              --output table 2>/dev/null || true
+
+            sleep $SLEEP_INTERVAL
+          done
+
+          echo "❌ Health check timed out after $((MAX_ATTEMPTS * SLEEP_INTERVAL))s"
+          echo "passed=false" >> "$GITHUB_OUTPUT"
+          exit 1
+
+      # ─────────────────────────────────────────
+      # 9. Atualizar o Listener do ALB para apontar para Green
+      #    Executado SOMENTE se o health check passou
+      # ─────────────────────────────────────────
+      - name: Switch ALB Listener traffic to Green
+        if: steps.health-check.outputs.passed == 'true'
+        run: |
+          echo "🔀 Switching ALB Listener → Green TG"
+
+          aws elbv2 modify-listener \
+            --listener-arn   "${{ secrets.LISTENER_ARN }}" \
+            --default-actions Type=forward,TargetGroupArn="${{ secrets.GREEN_TG_ARN }}"
+
+          echo "✅ ALB Listener now points to Green"
+
+          # Registrar o novo estado para auditoria
+          aws elbv2 describe-listeners \
+            --listener-arns "${{ secrets.LISTENER_ARN }}" \
+            --query 'Listeners[0].DefaultActions' \
+            --output table
+
+      # ─────────────────────────────────────────
+      # 10. Validação pós-switch via HTTP
+      # ─────────────────────────────────────────
+      - name: Smoke test via ALB DNS
+        if: steps.health-check.outputs.passed == 'true'
+        run: |
+          ALB_URL="http://${{ secrets.ALB_DNS_NAME }}/"
+          echo "🌐 Smoke testing $ALB_URL"
+
+          for i in {1..6}; do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$ALB_URL" || echo "000")
+            echo "   Attempt $i — HTTP $HTTP_STATUS"
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "✅ Smoke test passed (HTTP 200)"
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "⚠️  Smoke test did not get HTTP 200 — check application logs"
+          # Não falha o pipeline aqui; o switch já foi feito e o TG está healthy
+          exit 0
+
+      # ─────────────────────────────────────────
+      # 11. Sumário do deploy
+      # ─────────────────────────────────────────
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "════════════════════════════════════"
+          echo "  DEPLOYMENT SUMMARY"
+          echo "════════════════════════════════════"
+          echo "  Image tag   : ${{ steps.set-tag.outputs.image_tag }}"
+          echo "  Image URI   : ${{ steps.build-image.outputs.image_uri }}"
+          echo "  Health check: ${{ steps.health-check.outputs.passed }}"
+          echo "  Previous TG : ${{ steps.get-active.outputs.previous_tg_arn }}"
+          echo "  Green TG    : ${{ secrets.GREEN_TG_ARN }}"
+          echo "════════════════════════════════════"
+
+  # ─────────────────────────────────────────────────────────────
+  # JOB DE ROLLBACK — só executa se o deploy falhar
+  # ─────────────────────────────────────────────────────────────
+  rollback:
+    name: Rollback to previous Target Group
+    runs-on: ubuntu-latest
+    needs: build-and-deploy
+
+    # Condição: o job de deploy falhou (health check ou switch falharam)
+    if: failure() && needs.build-and-deploy.result == 'failure'
+
+    steps:
+      - name: Configure AWS credentials (Learner Lab)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Determine rollback target
+        id: rollback-target
+        run: |
+          PREVIOUS_TG="${{ needs.build-and-deploy.outputs.previous_tg_arn }}"
+
+          if [ -z "$PREVIOUS_TG" ] || [ "$PREVIOUS_TG" = "None" ]; then
+            # Fallback: se não conseguiu capturar o anterior, volta para Blue
+            echo "⚠️  previous_tg_arn not available, falling back to Blue TG"
+            PREVIOUS_TG="${{ secrets.BLUE_TG_ARN }}"
+          fi
+
+          echo "rollback_tg=$PREVIOUS_TG" >> "$GITHUB_OUTPUT"
+          echo "🔙 Will rollback to TG: $PREVIOUS_TG"
+
+      - name: Revert ALB Listener to previous Target Group
+        run: |
+          ROLLBACK_TG="${{ steps.rollback-target.outputs.rollback_tg }}"
+
+          echo "🔀 Reverting ALB Listener → $ROLLBACK_TG"
+
+          aws elbv2 modify-listener \
+            --listener-arn   "${{ secrets.LISTENER_ARN }}" \
+            --default-actions Type=forward,TargetGroupArn="$ROLLBACK_TG"
+
+          echo "✅ Rollback applied"
+
+          # Confirmar o estado atual do listener
+          aws elbv2 describe-listeners \
+            --listener-arns "${{ secrets.LISTENER_ARN }}" \
+            --query 'Listeners[0].DefaultActions' \
+            --output table
+
+      - name: Validate rollback via health check
+        run: |
+          echo "⏳ Validating rollback target group health..."
+
+          ROLLBACK_TG="${{ steps.rollback-target.outputs.rollback_tg }}"
+
+          for attempt in $(seq 1 12); do
+            HEALTHY=$(aws elbv2 describe-target-health \
+              --target-group-arn "$ROLLBACK_TG" \
+              --query 'length(TargetHealthDescriptions[?TargetHealth.State==`healthy`])' \
+              --output text)
+
+            echo "   Attempt $attempt/12 — Healthy targets: $HEALTHY"
+
+            if [ "$HEALTHY" -gt 0 ]; then
+              echo "✅ Rollback target group is healthy!"
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "⚠️  Rollback TG has no healthy targets — manual intervention required!"
+          # Não bloqueia o workflow; rollback foi aplicado no listener
+          exit 0
+
+      - name: Rollback summary
+        if: always()
+        run: |
+          echo "════════════════════════════════════"
+          echo "  ROLLBACK SUMMARY"
+          echo "════════════════════════════════════"
+          echo "  Triggered by  : failed health check"
+          echo "  Reverted to TG: ${{ steps.rollback-target.outputs.rollback_tg }}"
+          echo "  Listener ARN  : ${{ secrets.LISTENER_ARN }}"
+          echo "  Timestamp     : $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          echo "════════════════════════════════════"
+          echo ""
+          echo "⚠️  Action required: investigate why Green deployment failed."
+          echo "   Check container logs on the Green instance:"
+          echo "   ssh ec2-user@GREEN_HOST 'docker logs app --tail 100'"
